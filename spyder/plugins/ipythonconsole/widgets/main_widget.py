@@ -11,6 +11,7 @@ IPython Console main widget based on QtConsole.
 # Standard library imports
 from __future__ import annotations
 import functools
+import html
 import logging
 import os
 import os.path as osp
@@ -64,7 +65,7 @@ from spyder.plugins.ipythonconsole.widgets import (
 from spyder.plugins.ipythonconsole.widgets.mixins import CachedKernelMixin
 from spyder.plugins.remoteclient.api import RemoteClientActions
 from spyder.utils import encoding, sourcecode
-from spyder.utils.environ import get_user_environment_variables
+from spyder.utils.environ import get_user_environment_variables_and_errors
 from spyder.utils.misc import get_error_match, remove_backslashes
 from spyder.utils.palette import SpyderPalette
 from spyder.utils.stylesheet import AppStyle
@@ -303,6 +304,7 @@ class IPythonConsoleWidget(PluginMainWidget, CachedKernelMixin):  # noqa: PLR090
         self.interrupt_action = None
         self.registered_spyder_kernel_handlers = {}
         self.envs = {}
+        self._shell_startup_errors_shown = False
 
         # Attributes needed for the restart dialog
         self._restart_dialog = ConsoleRestartDialog(self)
@@ -1496,11 +1498,13 @@ class IPythonConsoleWidget(PluginMainWidget, CachedKernelMixin):  # noqa: PLR090
     ):
         """Connect kernel to client after environment variables are obtained"""
         try:
+            env_vars, startup_errors = future.result()
+
             # Create new kernel
             kernel_spec = SpyderKernelSpec(
                 path_to_custom_interpreter=path_to_custom_interpreter
             )
-            kernel_spec.env = future.result()
+            kernel_spec.env = env_vars
             kernel_handler = self.get_cached_kernel(kernel_spec, cache=cache)
         except Exception as e:
             client.show_kernel_error(e)
@@ -1508,6 +1512,37 @@ class IPythonConsoleWidget(PluginMainWidget, CachedKernelMixin):  # noqa: PLR090
 
         # Connect kernel to client
         client.connect_kernel(kernel_handler)
+
+        # Let users know that some of their environment variables could be
+        # missing due to errors in their shell startup files.
+        # Fixes spyder-ide/spyder#25263
+        if startup_errors and not self._shell_startup_errors_shown:
+            def show_errors():
+                client.shellwidget.sig_prompt_ready.disconnect(show_errors)
+                self._show_shell_startup_errors(client, startup_errors)
+
+            client.shellwidget.sig_prompt_ready.connect(show_errors)
+
+    def _show_shell_startup_errors(self, client, startup_errors):
+        """Show errors found in the user's shell startup files in client."""
+        # Only show them once per session to not be too annoying
+        if self._shell_startup_errors_shown:
+            return
+        self._shell_startup_errors_shown = True
+
+        errors = "<br>".join(html.escape(error) for error in startup_errors)
+        client.shellwidget.append_html_message(
+            _(
+                "Spyder found the following errors in your shell startup "
+                "files (e.g. <tt>~/.bashrc</tt> or <tt>~/.zshrc</tt>) while "
+                "getting your environment variables:"
+                "<br><br><tt>{errors}</tt><br><br>"
+                "Due to that, the variables defined after them are not "
+                "available in the console. Please fix these errors and open "
+                "a new console to load all your environment variables."
+            ).format(errors=errors),
+            before_prompt=True,
+        )
 
     def _run_script(
         self,
@@ -2007,8 +2042,8 @@ class IPythonConsoleWidget(PluginMainWidget, CachedKernelMixin):  # noqa: PLR090
         """
         Create a new client.
 
-        Uses asynchronous get_user_environment_variables and connects to kernel
-        upon future completion.
+        Uses asynchronous get_user_environment_variables_and_errors and
+        connects to kernel upon future completion.
         """
         self.master_clients += 1
         client_id = dict(int_id=str(self.master_clients),
@@ -2033,7 +2068,7 @@ class IPythonConsoleWidget(PluginMainWidget, CachedKernelMixin):  # noqa: PLR090
             special_kernel=special
         )
 
-        future = get_user_environment_variables()
+        future = get_user_environment_variables_and_errors()
         future.connect(
             AsyncDispatcher.QtSlot(
                 functools.partial(
