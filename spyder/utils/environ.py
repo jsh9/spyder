@@ -37,6 +37,16 @@ from spyder.widgets.collectionseditor import CollectionsEditor
 
 logger = logging.getLogger(__name__)
 
+# Errors found by bash or zsh while running the user's shell startup files are
+# written to stderr and point to the file and line where they happened. Some
+# examples are:
+#   zsh: "/home/user/.zshrc:4: parse error near `fi'"
+#   bash: "bash: /home/user/.bashrc: line 4: syntax error near unexpected
+#          token `fi'"
+SHELL_STARTUP_ERROR_RE = re.compile(
+    r"^(?:\S+: )?[^:\n]+:(?: \S+ )?\d+: .+$", re.MULTILINE
+)
+
 
 @lru_cache
 def _get_user_env_script():
@@ -97,17 +107,34 @@ def listdict2envdict(listdict):
     return listdict
 
 
-@AsyncDispatcher()
-async def get_user_environment_variables() -> dict:
+def get_shell_startup_errors(stderr: str) -> list[str]:
     """
-    Get user environment variables from HKCU (Windows) or a subprocess (Unix).
+    Get the errors reported by the shell while running the user's startup
+    files.
+
+    Parameters
+    ----------
+    stderr : str
+        Standard error of the script used to get the user environment
+        variables.
 
     Returns
     -------
-    env_var : dict
-        Key-value pairs of environment variables. All values are strings.
+    errors : list of str
+        Error messages found in stderr.
+    """
+    return [
+        error.strip() for error in SHELL_STARTUP_ERROR_RE.findall(stderr)
+    ]
+
+
+async def _get_user_environment_variables() -> tuple[dict, list[str]]:
+    """
+    Get user environment variables from HKCU (Windows) or a subprocess (Unix),
+    and the errors found in the user's shell startup files (Unix).
     """
     env_var = {}
+    startup_errors = []
 
     if os.name == 'nt':
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment")
@@ -136,7 +163,20 @@ async def get_user_environment_variables() -> dict:
                 )
 
                 if stderr:
-                    logger.info(stderr.decode().strip())
+                    stderr = stderr.decode().strip()
+                    logger.info(stderr)
+
+                    # Errors in shell startup files prevent the variables
+                    # defined after them from being loaded, so we need to
+                    # report them.
+                    # Fixes spyder-ide/spyder#25263
+                    startup_errors = get_shell_startup_errors(stderr)
+                    if startup_errors:
+                        logger.warning(
+                            "Errors found in shell startup files while "
+                            "getting user environment variables:\n%s",
+                            "\n".join(startup_errors)
+                        )
                 if stdout:
                     # Environment variables is final print statement
                     # Fixes spyder-ide/spyder#25263
@@ -148,7 +188,37 @@ async def get_user_environment_variables() -> dict:
             env_var = dict(os.environ)
 
     env_var = dict(sorted(env_var.items()))
+    return env_var, startup_errors
+
+
+@AsyncDispatcher()
+async def get_user_environment_variables() -> dict:
+    """
+    Get user environment variables from HKCU (Windows) or a subprocess (Unix).
+
+    Returns
+    -------
+    env_var : dict
+        Key-value pairs of environment variables. All values are strings.
+    """
+    env_var, __ = await _get_user_environment_variables()
     return env_var
+
+
+@AsyncDispatcher()
+async def get_user_environment_variables_and_errors() -> tuple[dict, list]:
+    """
+    Get user environment variables and the errors found while getting them.
+
+    Returns
+    -------
+    env_var : dict
+        Key-value pairs of environment variables. All values are strings.
+    startup_errors : list of str
+        Errors reported by the shell while running the user's startup files
+        (Unix only). Environment variables defined after them are missing.
+    """
+    return await _get_user_environment_variables()
 
 
 def get_user_env() -> dict:

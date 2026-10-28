@@ -3178,5 +3178,46 @@ def test_umr(ipyconsole, qtbot, tmp_path):
     assert "Reloaded modules" in control.toPlainText()
 
 
+@flaky(max_runs=3)
+def test_shell_startup_errors(ipyconsole, mocker, qtbot):
+    """
+    Test that errors found in the user's shell startup files are shown in the
+    console, but only once per session.
+
+    Regression test for spyder-ide/spyder#25263
+    """
+    error = "/home/user/.zshrc:4: parse error near `fi'"
+
+    async def get_user_env_with_errors():
+        return dict(os.environ), [error]
+
+    mocker.patch(
+        "spyder.utils.environ._get_user_environment_variables",
+        get_user_env_with_errors,
+    )
+
+    # Errors could have been found when creating the first console
+    ipyconsole.get_widget()._shell_startup_errors_shown = False
+
+    # Check errors are shown in the next console
+    ipyconsole.create_new_client()
+    shell = ipyconsole.get_current_shellwidget()
+    qtbot.waitUntil(
+        lambda: shell.spyder_kernel_ready and shell._prompt_html is not None,
+        timeout=SHELL_TIMEOUT
+    )
+    qtbot.waitUntil(lambda: error in shell._control.toPlainText())
+
+    # Check errors are not shown again
+    ipyconsole.create_new_client()
+    shell = ipyconsole.get_current_shellwidget()
+    qtbot.waitUntil(
+        lambda: shell.spyder_kernel_ready and shell._prompt_html is not None,
+        timeout=SHELL_TIMEOUT
+    )
+    qtbot.wait(500)
+    assert error not in shell._control.toPlainText()
+
+
 if __name__ == "__main__":
     pytest.main()
