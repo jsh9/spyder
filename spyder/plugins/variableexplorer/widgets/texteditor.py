@@ -8,9 +8,6 @@
 Text editor dialog
 """
 
-# Standard library imports
-import sys
-
 # Third party imports
 from qtpy.QtCore import Qt, Slot
 from qtpy.QtWidgets import (
@@ -122,12 +119,7 @@ class TextEditor(BaseDialog, SpyderWidgetMixin, SpyderFontsMixin):
         self.layout.addLayout(btn_layout)
 
         # Make the dialog act as a window
-        if sys.platform == 'darwin':
-            # See spyder-ide/spyder#12825
-            self.setWindowFlags(Qt.Tool)
-        else:
-            # Make the dialog act as a window
-            self.setWindowFlags(Qt.Window)
+        self.setup_window()
 
         self.setWindowIcon(ima.icon('edit'))
         if title:
