@@ -30,11 +30,18 @@ class BaseDialog(QDialog):
         self.setStyleSheet(css.toString())
 
     def setup_window(self):
-        """Make the dialog act as a separate window."""
+        """
+        Make the dialog act as a separate window.
+
+        Notes
+        -----
+        This must be called before the dialog is shown because, on macOS,
+        the attribute set here only takes effect when the native window is
+        created.
+        """
         if MAC:
             # Tool windows are hidden by default when Spyder loses focus, so
-            # this prevents that. Note: This needs to be set before the
-            # native window is created.
+            # this prevents that.
             # Fixes spyder-ide/spyder#17718
             self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)
 
