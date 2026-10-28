@@ -16,7 +16,6 @@ NumPy Array Editor Dialog based on Qt
 # Standard library imports
 from __future__ import annotations
 import io
-import sys
 from typing import Callable, Optional, TYPE_CHECKING
 
 # Third party imports
@@ -963,13 +962,8 @@ class ArrayEditor(BaseDialog, SpyderWidgetMixin):
         # Set minimum size
         self.setMinimumSize(500, 300)
 
-        if sys.platform == 'darwin':
-            # This makes the dialog stay on top.
-            # Fixes spyder-ide/spyder#22901
-            self.setWindowFlags(Qt.Tool)
-        else:
-            # Make the dialog act as a window
-            self.setWindowFlags(Qt.Window)
+        # Make the dialog act as a window
+        self.setup_window()
 
     def set_data_and_check(self, data, readonly=False):
         """
