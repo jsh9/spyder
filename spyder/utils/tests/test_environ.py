@@ -66,29 +66,47 @@ def test_get_user_env_polluted_shell_init(restore_user_env):
 
 
 def test_get_shell_startup_errors():
-    """Test that we detect errors reported by bash and zsh in stderr."""
+    """
+    Test that we detect the errors that make bash and zsh stop reading a
+    startup file.
+    """
     stderr = (
         # Messages that bash prints when started in interactive mode
         "bash: cannot set terminal process group (-1): Inappropriate ioctl "
         "for device\n"
         "bash: no job control in this shell\n"
-        # Errors reported by bash
+        # Errors that make bash stop reading a file
         "bash: /home/user/.bashrc: line 4: syntax error near unexpected "
         "token `fi'\n"
-        "/home/user/.bash_profile: line 2: foo: command not found\n"
-        # Errors reported by zsh
+        "bash: /home/user/.bashrc: line 4: `fi'\n"
+        "/home/user/.bash_profile: line 9: syntax error: unexpected end of "
+        "file\n"
+        "bash: /home/user/.bashrc: line 2: unexpected EOF while looking for "
+        "matching `\"'\n"
+        # Errors that make zsh stop reading a file
         "/home/user/.zshrc:4: parse error near `fi'\n"
+        "/home/user/.zshrc:6: unmatched \"\n"
+        "/home/user/.bashrc:8: bad substitution\n"
+        # Errors after which the shells keep reading the file
+        "/home/user/.bash_profile: line 2: pyenv: command not found\n"
         "/home/user/.bashrc:2: command not found: complete\n"
+        "bash: ${(L)X}: bad substitution\n"
         # Text written by other programs to stderr
-        "Some warning: something happened"
+        "Some warning: something happened\n"
+        "/opt/conda/lib/python3.12/site-packages/foo.py:12: UserWarning: "
+        "unmatched brackets"
     )
 
     assert get_shell_startup_errors(stderr) == [
         "bash: /home/user/.bashrc: line 4: syntax error near unexpected "
         "token `fi'",
-        "/home/user/.bash_profile: line 2: foo: command not found",
+        "/home/user/.bash_profile: line 9: syntax error: unexpected end of "
+        "file",
+        "bash: /home/user/.bashrc: line 2: unexpected EOF while looking for "
+        "matching `\"'",
         "/home/user/.zshrc:4: parse error near `fi'",
-        "/home/user/.bashrc:2: command not found: complete",
+        "/home/user/.zshrc:6: unmatched \"",
+        "/home/user/.bashrc:8: bad substitution",
     ]
 
     # No errors

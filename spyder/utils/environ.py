@@ -37,14 +37,21 @@ from spyder.widgets.collectionseditor import CollectionsEditor
 
 logger = logging.getLogger(__name__)
 
-# Errors found by bash or zsh while running the user's shell startup files are
-# written to stderr and point to the file and line where they happened. Some
-# examples are:
+# Errors that make bash or zsh stop reading a shell startup file, so the
+# variables defined after them are not loaded. They are written to stderr and
+# point to the file and line where they happened. Some examples are:
 #   zsh: "/home/user/.zshrc:4: parse error near `fi'"
 #   bash: "bash: /home/user/.bashrc: line 4: syntax error near unexpected
 #          token `fi'"
+# Other errors (e.g. "command not found") are not reported because the shell
+# keeps reading the file after them.
+# Note: The startup script runs with an empty environment, so these messages
+# are in English unless a startup file sets the locale before the error.
 SHELL_STARTUP_ERROR_RE = re.compile(
-    r"^(?:\S+: )?[^:\n]+:(?: \S+ )?\d+: .+$", re.MULTILINE
+    r"^(?:\S+: )?[^:\n]+:(?: \S+ )?\d+: "
+    r"(?:syntax error|unexpected EOF|parse error|unmatched|bad substitution|"
+    r"bad math expression).*$",
+    re.MULTILINE
 )
 
 
@@ -109,8 +116,7 @@ def listdict2envdict(listdict):
 
 def get_shell_startup_errors(stderr: str) -> list[str]:
     """
-    Get the errors reported by the shell while running the user's startup
-    files.
+    Get the errors that made the shell stop reading the user's startup files.
 
     Parameters
     ----------
@@ -128,10 +134,17 @@ def get_shell_startup_errors(stderr: str) -> list[str]:
     ]
 
 
-async def _get_user_environment_variables() -> tuple[dict, list[str]]:
+async def _get_user_environment_variables() -> tuple[dict, list]:
     """
     Get user environment variables from HKCU (Windows) or a subprocess (Unix),
     and the errors found in the user's shell startup files (Unix).
+
+    Returns
+    -------
+    env_var : dict
+        Key-value pairs of environment variables. All values are strings.
+    startup_errors : list of str
+        Errors that made the shell stop reading the user's startup files.
     """
     env_var = {}
     startup_errors = []
@@ -163,7 +176,7 @@ async def _get_user_environment_variables() -> tuple[dict, list[str]]:
                 )
 
                 if stderr:
-                    stderr = stderr.decode().strip()
+                    stderr = stderr.decode(errors="replace").strip()
                     logger.info(stderr)
 
                     # Errors in shell startup files prevent the variables
@@ -215,7 +228,7 @@ async def get_user_environment_variables_and_errors() -> tuple[dict, list]:
     env_var : dict
         Key-value pairs of environment variables. All values are strings.
     startup_errors : list of str
-        Errors reported by the shell while running the user's startup files
+        Errors that made the shell stop reading the user's startup files
         (Unix only). Environment variables defined after them are missing.
     """
     return await _get_user_environment_variables()
